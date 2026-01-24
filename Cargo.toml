@@ -9,6 +9,10 @@ path = "src/cpu/main.rs"
 
 [[bin]]
 name = "vm"
-path = "src/cpu/main.rs"
+path = "src/vm/main.rs"
+
+[[simulator]]
+name = "simulator"
+path = "src/simulator/main.rs"
 
 [dependencies]
