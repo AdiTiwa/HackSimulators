@@ -3,6 +3,12 @@ name = "hacksimulators"
 version = "0.1.0"
 edition = "2024"
 
+[dependencies]
+ratatui = { version = "0.30.0", default-features = false, features = ["termwiz"], optional=true }
+
+[features]
+ui = ["ratatui"]
+
 [[bin]]
 name = "cpu"
 path = "src/cpu/main.rs"
@@ -11,8 +17,6 @@ path = "src/cpu/main.rs"
 name = "vm"
 path = "src/vm/main.rs"
 
-[[simulator]]
+[[bin]]
 name = "simulator"
 path = "src/simulator/main.rs"
-
-[dependencies]

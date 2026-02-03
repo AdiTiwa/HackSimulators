@@ -322,7 +322,7 @@ impl Vm {
         for inst in instructions {
             match inst {
                 VmInstruction::Function { name, n_vars, span } => {
-                    if *n_vars as i32 < 0 || *n_vars > 32767 {
+                    if *n_vars as i32 < { 0 || *n_vars > 32767 {
                         return Err(create_error(
                             &format!("Illegal number of local variables {} (Expected 0-32767)", n_vars),
                             span.clone(),

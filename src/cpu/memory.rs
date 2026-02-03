@@ -6,7 +6,7 @@ pub enum Format {
 }
 
 impl Format {
-    pub fn radix(self) -> i16 {
+    pub fn radix(self) -> u32 {
         match self {
             Self::Bin   =>  2,
             Self::Dec   =>  10,
@@ -15,29 +15,39 @@ impl Format {
     }
 }
 
-pub const SCREEN_OFFSET: i16 = 0x4000;
-pub const SCREEN_ROWS: i16 = 256;
-pub const SCREEN_COLS: i16 = 32;
-pub const SCREEN_SIZE: i16 = SCREEN_ROWS * SCREEN_COLS;
-pub const KEYBOARD_OFFSET: i16 = 0x6000;
+pub const SCREEN_OFFSET: u16 = 0x4000;
+pub const SCREEN_ROWS: u16 = 256;
+pub const SCREEN_COLS: u16 = 32;
+pub const SCREEN_SIZE: u16 = SCREEN_ROWS * SCREEN_COLS;
+pub const KEYBOARD_OFFSET: u16 = 0x6000;
 
 pub trait MemInterface {
-    fn get          (&self, index: i32) -> i16;
-    fn set          (&mut self, index: i32, value: i16);
+    fn get          (&self, index: i32) -> u16;
+    fn set          (&mut self, index: i32, value: u16);
     fn reset        (&mut self);
     fn update       (&mut self, index: i32, value: &str, format: Format);
-    fn load_bytes   (&mut self, bytes: Vec<i16>, offset: Option<i32>);
-    fn range        (&self, start: Option<i32>, end: Option<i32>) -> Vec<i16>;
+    fn load_bytes   (&mut self, bytes: Vec<u16>, offset: Option<i32>);
+    fn range        (&self, start: Option<i32>, end: Option<i32>) -> Vec<u16>;
+}
+
+pub trait KeyboardInterface {
+    fn get_key       (&self) -> u16;
+    fn set_key       (&mut self, key: u16);
+    fn clear_key     (&mut self);
 }
 
 pub struct Memory {
     pub size:   i32,
-    memory  :   Vec<i16>,
+    memory  :   Vec<u16>,
 }
 
 impl Memory {
     pub fn new(size: i32) -> Memory {
         Memory {size, memory: vec![0; size as usize]}
+    }
+
+    pub fn with_vec(mem: Vec<u16>) -> Memory {
+        Memory { size: mem.len() as i32, memory: mem }
     }
 
     pub fn reset_range(&mut self, start: Option<i32>, end: Option<i32>) {
@@ -51,12 +61,12 @@ impl Memory {
 }
 
 impl MemInterface for Memory {
-    fn get(&self, index: i32) -> i16 {
-        if index < 0 || index >= self.size { return -1 }
+    fn get(&self, index: i32) -> u16 {
+        if index < 0 || index >= self.size { return 0xffff }
         self.memory[index as usize]
     }
 
-    fn set(&mut self, index: i32, value: i16) {
+    fn set(&mut self, index: i32, value: u16) {
         assert!(index >= 0 && index < self.size);
         self.memory[index as usize] = value;
     }
@@ -70,26 +80,26 @@ impl MemInterface for Memory {
         if index <= self.size && index > 0 {
             let trimmed = value.strip_prefix("0x").unwrap_or(value);
 
-            match i16::from_str_radix(trimmed, format.radix() as u32) {
+            match u16::from_str_radix(trimmed, format.radix()) {
                 Ok(number)  => self.set(index, number),
-                Err(_)      => self.set(index, -1),
+                Err(_)      => self.set(index, 0xffff),
             }
         }
     }
 
-    fn load_bytes(&mut self, bytes: Vec<i16>, offset: Option<i32>) {
+    fn load_bytes(&mut self, bytes: Vec<u16>, offset: Option<i32>) {
         let start = offset.unwrap_or(0);
         
         if start <= (self.size + bytes.len() as i32) && start > 0 {
             self.reset();
             
-            for i in 0..bytes.len() {
-                self.set(start + i as i32, bytes[i]);
+            for i in bytes.iter().enumerate() {
+                self.set(start + i.0 as i32, *i.1);
             }
         }
     }
 
-    fn range(&self, start: Option<i32>, end: Option<i32>) -> Vec<i16> {
+    fn range(&self, start: Option<i32>, end: Option<i32>) -> Vec<u16> {
         let a = start.unwrap_or(0) as usize;
         let b = end.unwrap_or(self.size) as usize;
 
@@ -113,12 +123,12 @@ impl<'a> SubMemory<'a> {
 }
 
 impl<'a> MemInterface for SubMemory<'a> {
-    fn get(&self, index: i32) -> i16 {
-        if index < 0 || index >= self.size { return -1; }
+    fn get(&self, index: i32) -> u16 {
+        if index < 0 || index >= self.size { return 0xffff; }
         self.parent.get(self.offset + index)
     }
 
-    fn set(&mut self, index: i32, value: i16) {
+    fn set(&mut self, index: i32, value: u16) {
         if index >= 0 && index < self.size {
             self.parent.set(self.offset + index, value);
         }
@@ -134,7 +144,7 @@ impl<'a> MemInterface for SubMemory<'a> {
         }
     }
 
-    fn load_bytes(&mut self, bytes: Vec<i16>, offset: Option<i32>) {
+    fn load_bytes(&mut self, bytes: Vec<u16>, offset: Option<i32>) {
         let start = offset.unwrap_or(0);
 
         if start <= self.size && start > 0 {
@@ -142,9 +152,90 @@ impl<'a> MemInterface for SubMemory<'a> {
         }
     }
 
-    fn range(&self, start: Option<i32>, end: Option<i32>) -> Vec<i16> {
+    fn range(&self, start: Option<i32>, end: Option<i32>) -> Vec<u16> {
         let a = start.unwrap_or(0);
         let b = end.unwrap_or(self.size);
         self.parent.range(Some(self.offset + a), Some(self.offset + b))
     }
-}   
+}
+
+pub struct MemoryKeyboard<'a> {
+    sub: SubMemory<'a>,
+}
+
+impl<'a> MemoryKeyboard<'a> {
+    pub fn new(mem: &'a mut Memory) -> Self {
+        Self {
+            sub: SubMemory::new(mem, 1, Some(KEYBOARD_OFFSET.into())),
+        }
+    }
+}
+
+impl KeyboardInterface for MemoryKeyboard<'_> {
+    fn get_key(&self) -> u16 {
+        self.sub.get(0)
+    }
+
+    fn set_key(&mut self, key: u16) {
+        self.sub.set(0, key & 0xffff);
+    }
+
+    fn clear_key (&mut self) {
+        self.sub.set(0, 0);
+    }
+}
+
+pub struct ROM {
+    mem: Memory,
+}
+
+impl ROM {
+    pub const SIZE: i32 = 0x8000;
+
+    /// Create an empty ROM.
+    pub fn new_empty() -> Self {
+        Self {
+            mem: Memory::new(Self::SIZE),
+        }
+    }
+
+    /// Create a ROM initialized with `program` words. Remaining words are zeros.
+    pub fn from_program(program: &[u16]) -> Self {
+        let mut vec = vec![0u16; Self::SIZE.try_into().unwrap()];
+        let copy_len = program.len().min(Self::SIZE.try_into().unwrap());
+        vec[..copy_len].copy_from_slice(&program[..copy_len]);
+        Self {
+            mem: Memory::with_vec(vec),
+        }
+    }
+
+    pub fn get(&self, index: i32) -> u16 {
+        self.mem.get(index)
+    }
+}
+
+pub struct RAM {
+    pub mem: Memory,
+}
+
+impl RAM {
+    pub const SIZE: i32 = 0x4000 + 0x2000 + 1;
+
+    pub fn new() -> Self {
+        Self {
+            mem: Memory::new(Self::SIZE),
+        }
+    }
+
+    pub fn screen(&mut self) -> SubMemory<'_> {
+        SubMemory::new(
+            &mut self.mem,
+            SCREEN_SIZE as i32,
+            Some(SCREEN_OFFSET.into()),
+        )
+    }
+
+    pub fn keyboard(&mut self) -> SubMemory<'_> {
+        SubMemory::new(&mut self.mem, 1, Some(KEYBOARD_OFFSET.into()))
+    }
+}
